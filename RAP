@@ -926,10 +926,10 @@ end)
 autoHopButton.MouseButton1Click:Connect(function()
     autoHopEnabled = not autoHopEnabled
     if autoHopEnabled then
-        autoHopButton.Text = "Auto Hop: ON"
+        autoHopButton.Text = "Auto Execute: ON"
         autoHopButton.BackgroundColor3 = Color3.fromRGB(0, 170, 255)
     else
-        autoHopButton.Text = "Auto Hop: OFF"
+        autoHopButton.Text = "Auto Execute: OFF"
         autoHopButton.BackgroundColor3 = Color3.fromRGB(120, 0, 0)
     end
     saveSettings()
