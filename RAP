@@ -518,7 +518,7 @@ local hopCorner = Instance.new("UICorner")
 hopCorner.CornerRadius = UDim.new(0, 6)
 hopCorner.Parent = hopButton
 
--- Tombol Kanan: Auto Hop ON/OFF (Status Auto Re-Execute)
+-- Tombol Kanan: Auto Execute ON/OFF (Status Auto Re-Execute)
 local autoHopButton = Instance.new("TextButton")
 autoHopButton.Size = UDim2.new(0.48, 0, 1, 0)
 autoHopButton.Position = UDim2.new(0.52, 0, 0, 0)
@@ -527,7 +527,7 @@ autoHopButton.BackgroundTransparency = 0.2
 autoHopButton.TextColor3 = Color3.fromRGB(255, 255, 255)
 autoHopButton.TextSize = 10
 autoHopButton.Font = Enum.Font.SourceSansBold
-autoHopButton.Text = autoHopEnabled and "Auto Hop: ON" or "Auto Hop: OFF"
+autoHopButton.Text = autoHopEnabled and "Auto Execute: ON" or "Auto Execute: OFF"
 autoHopButton.Parent = hopContainer
 
 local autoHopCorner = Instance.new("UICorner")
