@@ -78,7 +78,7 @@ local function setupQueueOnTeleport()
         pcall(function()
             queue_on_teleport([[
                 task.wait(3)
-                loadstring(game:HttpGet(https://pastefy.app/mVxDo4LC/raw))()
+                loadstring(game:HttpGet(https://raw.githubusercontent.com/GilangN/RAP/refs/heads/main/RAP))()
             ]])
         end)
     end
