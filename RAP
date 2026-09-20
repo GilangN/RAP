@@ -141,7 +141,7 @@ local eggRarityDatabase = {
     ["Sinister Egg"] = "Mythic",
     ["Aurora Egg"] = "Divine",
     ["Galaxy Egg"] = "Divine",
-    ["Blackhole Egg"] = "Ethereal",
+    ["Blackhole Egg"] = "Divine",
     ["Solaris Egg"] = "Ethereal",
     ["Cherub Egg"] = "Ethereal"
 }
@@ -447,7 +447,6 @@ leftPanel.Size = UDim2.new(0, 210, 1, 0)
 leftPanel.BackgroundTransparency = 1
 leftPanel.Parent = contentFrame
 
--- Tombol ESP (Atas)
 local toggleButton = Instance.new("TextButton")
 toggleButton.Size = UDim2.new(1, -6, 0, 28)
 toggleButton.Position = UDim2.new(0, 0, 0, 0)
@@ -463,7 +462,6 @@ local toggleCorner = Instance.new("UICorner")
 toggleCorner.CornerRadius = UDim.new(0, 6)
 toggleCorner.Parent = toggleButton
 
--- Tombol TP Base
 local tpDownButton = Instance.new("TextButton")
 tpDownButton.Size = UDim2.new(1, -6, 0, 28)
 tpDownButton.Position = UDim2.new(0, 0, 0, 32)
@@ -479,7 +477,6 @@ local tpDownCorner = Instance.new("UICorner")
 tpDownCorner.CornerRadius = UDim.new(0, 6)
 tpDownCorner.Parent = tpDownButton
 
--- Tombol Auto Farm
 local autoFarmButton = Instance.new("TextButton")
 autoFarmButton.Size = UDim2.new(1, -6, 0, 28)
 autoFarmButton.Position = UDim2.new(0, 0, 0, 64)
@@ -495,14 +492,12 @@ local autoFarmCorner = Instance.new("UICorner")
 autoFarmCorner.CornerRadius = UDim.new(0, 6)
 autoFarmCorner.Parent = autoFarmButton
 
--- Wadah 2 Tombol Berdampingan (Kiri & Kanan) untuk Server Hop & Auto Hop
 local hopContainer = Instance.new("Frame")
 hopContainer.Size = UDim2.new(1, -6, 0, 28)
 hopContainer.Position = UDim2.new(0, 0, 0, 96)
 hopContainer.BackgroundTransparency = 1
 hopContainer.Parent = leftPanel
 
--- Tombol Kiri: HOP SERVER (Eksekusi Teleport)
 local hopButton = Instance.new("TextButton")
 hopButton.Size = UDim2.new(0.48, 0, 1, 0)
 hopButton.Position = UDim2.new(0, 0, 0, 0)
@@ -518,7 +513,6 @@ local hopCorner = Instance.new("UICorner")
 hopCorner.CornerRadius = UDim.new(0, 6)
 hopCorner.Parent = hopButton
 
--- Tombol Kanan: Auto Execute ON/OFF (Status Auto Re-Execute)
 local autoHopButton = Instance.new("TextButton")
 autoHopButton.Size = UDim2.new(0.48, 0, 1, 0)
 autoHopButton.Position = UDim2.new(0.52, 0, 0, 0)
@@ -650,6 +644,57 @@ local function triggerPrompts(target)
     end
 end
 
+-- Fungsi proses ambil egg dengan offset 4, jeda 1 sebelum pickup, dan jeda 1 setelah terangkat
+local function processEggCollection(item)
+    if not item or not item.Parent then return end
+    local part = getEggPart(item)
+    local character = LocalPlayer.Character
+    if not part or not character or not character:FindFirstChild("HumanoidRootPart") then return end
+    
+    local hrp = character.HumanoidRootPart
+    local humanoid = character:FindFirstChildOfClass("Humanoid")
+    
+    -- 1. TP ke atas egg (Offset 4)
+    hrp.CFrame = part.CFrame + Vector3.new(0, 4, 0)
+    
+    -- 2. Aktifkan mode fly agar tidak jatuh
+    local flying = true
+    local flyConn
+    flyConn = RunService.RenderStepped:Connect(function()
+        if not flying or not hrp or not hrp.Parent then
+            if flyConn then flyConn:Disconnect() end
+            return
+        end
+        hrp.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
+        hrp.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
+        if humanoid then
+            humanoid:ChangeState(Enum.HumanoidStateType.Physics)
+        end
+    end)
+    
+    -- 3. Jeda 1 detik sebelum pickup
+    task.wait(1)
+    
+    -- 4. Pickup sampai egg hilang dari folder
+    local targetItem = item
+    while targetItem and targetItem.Parent == FOLDER_PATH do
+        triggerPrompts(targetItem)
+        task.wait(0.3)
+    end
+    
+    -- 5. Jeda 1 detik setelah terangkat
+    task.wait(1)
+    
+    -- 6. Matikan mode fly dan TP ke base
+    flying = false
+    if flyConn then flyConn:Disconnect() end
+    if humanoid then
+        humanoid:ChangeState(Enum.HumanoidStateType.GettingUp)
+    end
+    
+    hrp.CFrame = hrp.CFrame - Vector3.new(0, 1500, 0)
+end
+
 local function updateUIList()
     for _, child in ipairs(scrollList:GetChildren()) do
         if child:IsA("Frame") then
@@ -723,7 +768,7 @@ local function updateUIList()
                 if item and item.Parent then
                     local part = getEggPart(item)
                     if part and LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart") then
-                        LocalPlayer.Character.HumanoidRootPart.CFrame = part.CFrame + Vector3.new(0, 3, 0)
+                        LocalPlayer.Character.HumanoidRootPart.CFrame = part.CFrame + Vector3.new(0, 4, 0)
                     end
                 end
             end)
@@ -745,24 +790,7 @@ local function updateUIList()
 
             autoButton.MouseButton1Click:Connect(function()
                 task.spawn(function()
-                    if item and item.Parent then
-                        local part = getEggPart(item)
-                        local character = LocalPlayer.Character
-                        
-                        if part and character and character:FindFirstChild("HumanoidRootPart") then
-                            local hrp = character.HumanoidRootPart
-                            
-                            hrp.CFrame = part.CFrame + Vector3.new(0, 3, 0)
-                            task.wait(2)
-                            
-                            if item.Parent then
-                                triggerPrompts(item)
-                            end
-                            task.wait(2)
-                            
-                            hrp.CFrame = hrp.CFrame - Vector3.new(0, 1500, 0)
-                        end
-                    end
+                    processEggCollection(item)
                 end)
             end)
         end
@@ -807,16 +835,7 @@ task.spawn(function()
                         local part = getEggPart(item)
                         if part then
                             farmedAny = true
-                            
-                            hrp.CFrame = part.CFrame + Vector3.new(0, 3, 0)
-                            task.wait(2)
-                            
-                            if item.Parent then
-                                triggerPrompts(item)
-                            end
-                            task.wait(2)
-                            
-                            hrp.CFrame = hrp.CFrame - Vector3.new(0, 1500, 0)
+                            processEggCollection(item)
                             task.wait(1)
                             break
                         end
@@ -954,4 +973,3 @@ updateUIList()
 if globalEspEnabled then
     refreshAllESP()
 end
-
