@@ -120,6 +120,7 @@ local function hopServer()
     end
 end
 
+-- Database Rarity
 local eggRarityDatabase = {
     ["White Egg"] = "Common",
     ["Brown Egg"] = "Common",
@@ -146,6 +147,33 @@ local eggRarityDatabase = {
     ["Cherub Egg"] = "Ethereal"
 }
 
+-- Nilai Luck Telur
+local eggLuckDatabase = {
+    ["White Egg"] = 1,
+    ["Brown Egg"] = 5,
+    ["Cracked Egg"] = 30,
+    ["Easter Egg"] = 50,
+    ["Stone Egg"] = 100,
+    ["Leaf Egg"] = 200,
+    ["Mushroom Egg"] = 500,
+    ["Flower Egg"] = 750,
+    ["Slime Egg"] = 1000,
+    ["Ice Egg"] = 3000,
+    ["Glass Egg"] = 10000,
+    ["Golden Egg"] = 30000,
+    ["Crystal Egg"] = 150000,
+    ["Skull Egg"] = 250000,
+    ["Dominus Egg"] = 700000,
+    ["Flaming Egg"] = 1000000,
+    ["Sinister Egg"] = 3000000,
+    ["Soul Egg"] = 7000000,
+    ["Aurora Egg"] = 300000000,
+    ["Galaxy Egg"] = 1500000000,
+    ["Blackhole Egg"] = 100000000000,
+    ["Solaris Egg"] = 300000000000,
+    ["Cherub Egg"] = 1000000000000
+}
+
 local rarityWeights = {
     ["Ethereal"] = 8,
     ["Divine"] = 7,
@@ -158,6 +186,10 @@ local rarityWeights = {
 
 local function getEggRarity(eggName)
     return eggRarityDatabase[eggName] or "Common"
+end
+
+local function getEggLuck(eggName)
+    return eggLuckDatabase[eggName] or 0
 end
 
 local eggColors = {}
@@ -644,7 +676,7 @@ local function triggerPrompts(target)
     end
 end
 
--- Fungsi proses ambil egg dengan offset 4, jeda 1 sebelum pickup, dan jeda 1 setelah terangkat
+-- Fungsi proses pengambilan egg (TP Base menggunakan sumbu Y 40312 lalu -300 tanpa efek gravitasi)
 local function processEggCollection(item)
     if not item or not item.Parent then return end
     local part = getEggPart(item)
@@ -657,7 +689,7 @@ local function processEggCollection(item)
     -- 1. TP ke atas egg (Offset 4)
     hrp.CFrame = part.CFrame + Vector3.new(0, 4, 0)
     
-    -- 2. Aktifkan mode fly agar tidak jatuh
+    -- 2. Fly Mode (Melayang agar tidak jatuh)
     local flying = true
     local flyConn
     flyConn = RunService.RenderStepped:Connect(function()
@@ -685,14 +717,18 @@ local function processEggCollection(item)
     -- 5. Jeda 1 detik setelah terangkat
     task.wait(1)
     
-    -- 6. Matikan mode fly dan TP ke base
+    -- 6. Matikan mode fly dan TP ke base (Sumbu Y diset ke 40312 lalu dikurangi 300)
     flying = false
     if flyConn then flyConn:Disconnect() end
     if humanoid then
         humanoid:ChangeState(Enum.HumanoidStateType.GettingUp)
     end
     
-    hrp.CFrame = hrp.CFrame - Vector3.new(0, 1500, 0)
+    local currentPos = hrp.Position
+    hrp.CFrame = CFrame.new(currentPos.X, 40312 - 300, currentPos.Z)
+    
+    -- Jeda tambahan sebelum lanjut ke egg berikutnya
+    task.wait(1)
 end
 
 local function updateUIList()
@@ -704,6 +740,7 @@ local function updateUIList()
 
     local children = FOLDER_PATH:GetChildren()
 
+    -- Pengurutan Prioritas: Rarity > Luck > Weight
     table.sort(children, function(a, b)
         local rarityA = getEggRarity(a.Name)
         local rarityB = getEggRarity(b.Name)
@@ -713,12 +750,18 @@ local function updateUIList()
         if weightRarityA ~= weightRarityB then
             return weightRarityA > weightRarityB
         else
-            local sizeA = getEggWeight(a)
-            local sizeB = getEggWeight(b)
-            if sizeA ~= sizeB then
-                return sizeA > sizeB
+            local luckA = getEggLuck(a.Name)
+            local luckB = getEggLuck(b.Name)
+            if luckA ~= luckB then
+                return luckA > luckB
             else
-                return a.Name < b.Name
+                local sizeA = getEggWeight(a)
+                local sizeB = getEggWeight(b)
+                if sizeA ~= sizeB then
+                    return sizeA > sizeB
+                else
+                    return a.Name < b.Name
+                end
             end
         end
     end)
@@ -816,12 +859,18 @@ task.spawn(function()
                     if weightRarityA ~= weightRarityB then
                         return weightRarityA > weightRarityB
                     else
-                        local sizeA = getEggWeight(a)
-                        local sizeB = getEggWeight(b)
-                        if sizeA ~= sizeB then
-                            return sizeA > sizeB
+                        local luckA = getEggLuck(a.Name)
+                        local luckB = getEggLuck(b.Name)
+                        if luckA ~= luckB then
+                            return luckA > luckB
                         else
-                            return a.Name < b.Name
+                            local sizeA = getEggWeight(a)
+                            local sizeB = getEggWeight(b)
+                            if sizeA ~= sizeB then
+                                return sizeA > sizeB
+                            else
+                                return a.Name < b.Name
+                            end
                         end
                     end
                 end)
@@ -922,7 +971,8 @@ tpDownButton.MouseButton1Click:Connect(function()
     local character = LocalPlayer.Character
     if character and character:FindFirstChild("HumanoidRootPart") then
         local hrp = character.HumanoidRootPart
-        hrp.CFrame = hrp.CFrame - Vector3.new(0, 1500, 0)
+        local currentPos = hrp.Position
+        hrp.CFrame = CFrame.new(currentPos.X, 40312 - 300, currentPos.Z)
     end
 end)
 
