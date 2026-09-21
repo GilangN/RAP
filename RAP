@@ -200,18 +200,6 @@ local function getEggLuck(eggName)
     return eggLuckDatabase[eggName] or 0
 end
 
-local eggColors = {}
-local function getEggColor(eggName)
-    if not eggColors[eggName] then
-        local hash = 0
-        for i = 1, #eggName do
-            hash = string.byte(eggName, i) + (hash * 31)
-        end
-        eggColors[eggName] = Color3.fromRGB((hash % 155) + 100, ((hash // 7) % 155) + 100, ((hash // 13) % 155) + 100)
-    end
-    return eggColors[eggName]
-end
-
 local function getEggPart(eggItem)
     if eggItem:IsA("BasePart") then
         return eggItem
@@ -550,13 +538,32 @@ local uiListLayout = Instance.new("UIListLayout", scrollList)
 uiListLayout.SortOrder = Enum.SortOrder.LayoutOrder
 uiListLayout.Padding = UDim.new(0, 2)
 
+-- Fungsi warna tetap sesuai rarity permintaan
+local function getRarityBaseColor(eggRarity)
+    if eggRarity == "Common" then
+        return Color3.fromRGB(255, 255, 255)      -- Putih
+    elseif eggRarity == "Rare" then
+        return Color3.fromRGB(0, 120, 255)       -- Biru
+    elseif eggRarity == "Epic" then
+        return Color3.fromRGB(170, 0, 255)       -- Ungu
+    elseif eggRarity == "Legendary" then
+        return Color3.fromRGB(255, 140, 0)       -- Oren
+    elseif eggRarity == "Mythic" then
+        return Color3.fromRGB(255, 0, 0)         -- Merah
+    elseif eggRarity == "Divine" then
+        return Color3.fromRGB(255, 220, 50)      -- Gold/Kuning
+    elseif eggRarity == "Ethereal" then
+        return Color3.fromRGB(255, 50, 150)      -- Pink Tua
+    end
+    return Color3.fromRGB(255, 255, 255)
+end
+
 local function setupESP(eggItem)
     local targetPart = getEggPart(eggItem)
     if not targetPart then return end
 
     local eggName = eggItem.Name
     local eggRarity = getEggRarity(eggName)
-    local uniqueColor = getEggColor(eggName)
 
     if not globalEspEnabled or not rarityToggles[eggRarity] then
         removeESP(eggItem)
@@ -565,39 +572,74 @@ local function setupESP(eggItem)
 
     removeESP(eggItem)
 
+    local baseColor = getRarityBaseColor(eggRarity)
+
     local highlight = Instance.new("Highlight", eggItem)
     highlight.Name = "EggESP_Highlight"
     highlight.Adornee = eggItem
-    highlight.FillColor = uniqueColor
+    highlight.FillColor = baseColor
     highlight.FillTransparency = 0.5
     highlight.OutlineTransparency = 1
 
     local billboard = Instance.new("BillboardGui", eggItem)
     billboard.Name = "EggESP_Gui"
-    billboard.Size = UDim2.new(0, 120, 0, 50)
+    billboard.Size = UDim2.new(0, 140, 0, 45)
     billboard.StudsOffset = Vector3.new(0, 2.5, 0)
     billboard.AlwaysOnTop = true
     billboard.Adornee = targetPart
 
-    local textLabel = Instance.new("TextLabel", billboard)
-    textLabel.Name = "ESPText"
-    textLabel.Size = UDim2.new(1, 0, 1, 0)
-    textLabel.BackgroundTransparency = 1
-    textLabel.TextColor3 = uniqueColor
-    textLabel.TextStrokeTransparency = 0
-    textLabel.TextSize = 13
-    textLabel.Font = Enum.Font.SourceSansBold
+    -- Text Label untuk Nama Egg (Font 15)
+    local nameLabel = Instance.new("TextLabel", billboard)
+    nameLabel.Name = "ESPNameText"
+    nameLabel.Size = UDim2.new(1, 0, 0, 22)
+    nameLabel.Position = UDim2.new(0, 0, 0, 0)
+    nameLabel.BackgroundTransparency = 1
+    nameLabel.TextColor3 = baseColor
+    nameLabel.TextStrokeTransparency = 0
+    nameLabel.TextSize = 15
+    nameLabel.Font = Enum.Font.SourceSansBold
+    nameLabel.Text = eggName
+
+    -- Text Label untuk Jarak (Font 10, diletakkan tepat di bawah nama tanpa jarak kosong)
+    local distLabel = Instance.new("TextLabel", billboard)
+    distLabel.Name = "ESPDistText"
+    distLabel.Size = UDim2.new(1, 0, 0, 16)
+    distLabel.Position = UDim2.new(0, 0, 0, 20)
+    distLabel.BackgroundTransparency = 1
+    distLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+    distLabel.TextStrokeTransparency = 0
+    distLabel.TextSize = 10
+    distLabel.Font = Enum.Font.SourceSansBold
+    distLabel.Text = "< ? m >"
 
     local espThread = task.spawn(function()
+        local tickCount = 0
         while billboard and billboard.Parent and targetPart and targetPart.Parent and globalEspEnabled and rarityToggles[eggRarity] do
+            tickCount = tickCount + 0.1
+            
+            -- Efek Gradasi Berjalan Otomatis
+            if eggRarity == "Divine" then
+                -- Gradasi berjalan dari warna Gold ke Putih kekuningan
+                local tVal = (math.sin(tickCount * 3) + 1) / 2
+                local dynamicColor = Color3.fromRGB(255, 180, 0):Lerp(Color3.fromRGB(255, 255, 220), tVal)
+                nameLabel.TextColor3 = dynamicColor
+                highlight.FillColor = dynamicColor
+            elseif eggRarity == "Ethereal" then
+                -- Gradasi berjalan dari warna Pink tua ke Pink muda/Putih lembut
+                local tVal = (math.sin(tickCount * 2.5) + 1) / 2
+                local dynamicColor = Color3.fromRGB(220, 20, 100):Lerp(Color3.fromRGB(255, 150, 200), tVal)
+                nameLabel.TextColor3 = dynamicColor
+                highlight.FillColor = dynamicColor
+            end
+
             local character = LocalPlayer.Character
             if character and character:FindFirstChild("HumanoidRootPart") then
                 local distance = (character.HumanoidRootPart.Position - targetPart.Position).Magnitude
-                textLabel.Text = string.format("%s\n< %d m >", eggName, math.floor(distance))
+                distLabel.Text = string.format("< %d m >", math.floor(distance))
             else
-                textLabel.Text = string.format("%s\n[Jarak: ?]", eggName)
+                distLabel.Text = "[Jarak: ?]"
             end
-            task.wait(0.3)
+            task.wait(0.1)
         end
     end)
     table.insert(getgenv().RideAPet_Connections, espThread)
@@ -797,7 +839,7 @@ updateEggFilterUI = function()
     end
 end
 
--- Background Loop: Auto Upgrade (Jeda 5 Detik saat ON)
+-- Background Loop: Auto Upgrade
 local upThread = task.spawn(function()
     while true do
         if autoUpgradeEnabled then
