@@ -5,6 +5,7 @@ local RunService = game:GetService("RunService")
 local HttpService = game:GetService("HttpService")
 local TeleportService = game:GetService("TeleportService")
 local CoreGui = game:GetService("CoreGui")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local LocalPlayer = Players.LocalPlayer
 local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
@@ -14,12 +15,14 @@ if PlayerGui:FindFirstChild("RideAPet_UI") then
 end
 
 local FOLDER_PATH = Workspace:WaitForChild("RenderedEggs")
-
 local CONFIG_FILE = "RideAPet_Config.json"
 
 local globalEspEnabled = false
 local autoFarmEnabled = false
 local autoHopEnabled = false
+local autoUpgradeEnabled = false
+
+local VisitedServers = { [game.JobId] = true }
 
 local rarityToggles = {
     ["Common"] = true,
@@ -31,12 +34,16 @@ local rarityToggles = {
     ["Ethereal"] = true
 }
 
+local eggAutoToggles = {}
+
 local function saveSettings()
     local configData = {
         ESP = globalEspEnabled,
         AutoFarm = autoFarmEnabled,
         AutoHop = autoHopEnabled,
-        RarityToggles = rarityToggles
+        AutoUpgrade = autoUpgradeEnabled,
+        RarityToggles = rarityToggles,
+        EggAutoToggles = eggAutoToggles
     }
     
     local success, encoded = pcall(function()
@@ -60,11 +67,17 @@ local function loadSettings()
             if decoded.ESP ~= nil then globalEspEnabled = decoded.ESP end
             if decoded.AutoFarm ~= nil then autoFarmEnabled = decoded.AutoFarm end
             if decoded.AutoHop ~= nil then autoHopEnabled = decoded.AutoHop end
+            if decoded.AutoUpgrade ~= nil then autoUpgradeEnabled = decoded.AutoUpgrade end
             if decoded.RarityToggles ~= nil then
                 for rarity, state in pairs(decoded.RarityToggles) do
                     if rarityToggles[rarity] ~= nil then
                         rarityToggles[rarity] = state
                     end
+                end
+            end
+            if decoded.EggAutoToggles ~= nil then
+                for eggName, state in pairs(decoded.EggAutoToggles) do
+                    eggAutoToggles[eggName] = state
                 end
             end
         end
@@ -86,31 +99,51 @@ end
 
 local function hopServer()
     setupQueueOnTeleport()
+    VisitedServers[game.JobId] = true
+
     local success, err = pcall(function()
         local servers = {}
         local cursor = ""
+        local attempts = 0
         
         repeat
+            attempts = attempts + 1
             local url = "https://games.roblox.com/v1/games/" .. game.PlaceId .. "/servers/Public?sortOrder=Asc&limit=100"
             if cursor ~= "" then
                 url = url .. "&cursor=" .. cursor
             end
-            local req = HttpService:JSONDecode(game:HttpGet(url))
+            
+            local reqSucc, response = pcall(function()
+                return game:HttpGet(url)
+            end)
+            
+            if not reqSucc or not response then break end
+            
+            local req = HttpService:JSONDecode(response)
             cursor = req.nextPageCursor
-            for _, server in ipairs(req.data) do
-                if server.playing and server.playing < server.maxPlayers and server.id ~= game.JobId then
-                    table.insert(servers, server)
+            
+            if req.data then
+                for _, server in ipairs(req.data) do
+                    if server.playing and server.maxPlayers and server.playing < server.maxPlayers then
+                        if not VisitedServers[server.id] then
+                            table.insert(servers, server)
+                        end
+                    end
                 end
             end
-        until not cursor or #servers > 0
+            
+        until not cursor or #servers > 0 or attempts > 3
         
         table.sort(servers, function(a, b)
             return a.playing < b.playing
         end)
         
         if #servers > 0 then
-            TeleportService:TeleportToPlaceInstance(game.PlaceId, servers[1].id, LocalPlayer)
+            local targetServer = servers[1]
+            VisitedServers[targetServer.id] = true
+            TeleportService:TeleportToPlaceInstance(game.PlaceId, targetServer.id, LocalPlayer)
         else
+            VisitedServers = {} 
             TeleportService:Teleport(game.PlaceId, LocalPlayer)
         end
     end)
@@ -120,68 +153,28 @@ local function hopServer()
     end
 end
 
--- Database Rarity
 local eggRarityDatabase = {
-    ["White Egg"] = "Common",
-    ["Brown Egg"] = "Common",
-    ["Cracked Egg"] = "Rare",
-    ["Easter Egg"] = "Rare",
-    ["Stone Egg"] = "Rare",
-    ["Leaf Egg"] = "Rare",
-    ["Mushroom Egg"] = "Epic",
-    ["Flower Egg"] = "Epic",
-    ["Slime Egg"] = "Epic",
-    ["Ice Egg"] = "Epic",
-    ["Glass Egg"] = "Legendary",
-    ["Golden Egg"] = "Legendary",
-    ["Crystal Egg"] = "Mythic",
-    ["Flaming Egg"] = "Mythic",
-    ["Skull Egg"] = "Mythic",
-    ["Soul Egg"] = "Mythic",
-    ["Dominus Egg"] = "Mythic",
-    ["Sinister Egg"] = "Mythic",
-    ["Aurora Egg"] = "Divine",
-    ["Galaxy Egg"] = "Divine",
-    ["Blackhole Egg"] = "Divine",
-    ["Solaris Egg"] = "Ethereal",
-    ["Cherub Egg"] = "Ethereal"
+    ["White Egg"] = "Common", ["Brown Egg"] = "Common",
+    ["Cracked Egg"] = "Rare", ["Easter Egg"] = "Rare", ["Stone Egg"] = "Rare", ["Leaf Egg"] = "Rare",
+    ["Mushroom Egg"] = "Epic", ["Flower Egg"] = "Epic", ["Slime Egg"] = "Epic", ["Ice Egg"] = "Epic",
+    ["Glass Egg"] = "Legendary", ["Golden Egg"] = "Legendary",
+    ["Crystal Egg"] = "Mythic", ["Flaming Egg"] = "Mythic", ["Skull Egg"] = "Mythic", ["Soul Egg"] = "Mythic", ["Dominus Egg"] = "Mythic", ["Sinister Egg"] = "Mythic",
+    ["Aurora Egg"] = "Divine", ["Galaxy Egg"] = "Divine",
+    ["Blackhole Egg"] = "Ethereal", ["Solaris Egg"] = "Ethereal", ["Cherub Egg"] = "Ethereal"
 }
 
--- Nilai Luck Telur
 local eggLuckDatabase = {
-    ["White Egg"] = 1,
-    ["Brown Egg"] = 5,
-    ["Cracked Egg"] = 30,
-    ["Easter Egg"] = 50,
-    ["Stone Egg"] = 100,
-    ["Leaf Egg"] = 200,
-    ["Mushroom Egg"] = 500,
-    ["Flower Egg"] = 750,
-    ["Slime Egg"] = 1000,
-    ["Ice Egg"] = 3000,
-    ["Glass Egg"] = 10000,
-    ["Golden Egg"] = 30000,
-    ["Crystal Egg"] = 150000,
-    ["Skull Egg"] = 250000,
-    ["Dominus Egg"] = 700000,
-    ["Flaming Egg"] = 1000000,
-    ["Sinister Egg"] = 3000000,
-    ["Soul Egg"] = 7000000,
-    ["Aurora Egg"] = 300000000,
-    ["Galaxy Egg"] = 1500000000,
-    ["Blackhole Egg"] = 100000000000,
-    ["Solaris Egg"] = 300000000000,
-    ["Cherub Egg"] = 1000000000000
+    ["White Egg"] = 1, ["Brown Egg"] = 5,
+    ["Cracked Egg"] = 30, ["Easter Egg"] = 50, ["Stone Egg"] = 100, ["Leaf Egg"] = 200,
+    ["Mushroom Egg"] = 500, ["Flower Egg"] = 750, ["Slime Egg"] = 1000, ["Ice Egg"] = 3000,
+    ["Glass Egg"] = 10000, ["Golden Egg"] = 30000,
+    ["Crystal Egg"] = 150000, ["Skull Egg"] = 250000, ["Dominus Egg"] = 700000, ["Flaming Egg"] = 1000000, ["Sinister Egg"] = 3000000, ["Soul Egg"] = 7000000,
+    ["Aurora Egg"] = 300000000, ["Galaxy Egg"] = 1500000000,
+    ["Blackhole Egg"] = 100000000000, ["Solaris Egg"] = 300000000000, ["Cherub Egg"] = 1000000000000
 }
 
 local rarityWeights = {
-    ["Ethereal"] = 8,
-    ["Divine"] = 7,
-    ["Mythic"] = 6,
-    ["Legendary"] = 5,
-    ["Epic"] = 4,
-    ["Rare"] = 3,
-    ["Common"] = 2
+    ["Ethereal"] = 8, ["Divine"] = 7, ["Mythic"] = 6, ["Legendary"] = 5, ["Epic"] = 4, ["Rare"] = 3, ["Common"] = 2
 }
 
 local function getEggRarity(eggName)
@@ -193,17 +186,13 @@ local function getEggLuck(eggName)
 end
 
 local eggColors = {}
-
 local function getEggColor(eggName)
     if not eggColors[eggName] then
         local hash = 0
         for i = 1, #eggName do
             hash = string.byte(eggName, i) + (hash * 31)
         end
-        local r = (hash % 155) + 100
-        local g = ((hash // 7) % 155) + 100
-        local b = ((hash // 13) % 155) + 100
-        eggColors[eggName] = Color3.fromRGB(r, g, b)
+        eggColors[eggName] = Color3.fromRGB((hash % 155) + 100, ((hash // 7) % 155) + 100, ((hash // 13) % 155) + 100)
     end
     return eggColors[eggName]
 end
@@ -219,12 +208,10 @@ end
 
 local function getEggWeight(eggItem)
     local weightAttr = eggItem:GetAttribute("Weight") or eggItem:GetAttribute("KG") or eggItem:GetAttribute("Mass")
-    if type(weightAttr) == "number" then
-        return weightAttr
-    end
+    if type(weightAttr) == "number" then return weightAttr end
 
     for _, desc in ipairs(eggItem:GetDescendants()) do
-        if (desc.Name == "Weight" or desc.Name == "KG" or desc.Name == "Mass") then
+        if desc.Name == "Weight" or desc.Name == "KG" or desc.Name == "Mass" then
             if desc:IsA("NumberValue") or desc:IsA("IntValue") then
                 return desc.Value
             elseif desc:IsA("StringValue") then
@@ -235,30 +222,18 @@ local function getEggWeight(eggItem)
     end
 
     if eggItem:IsA("Model") then
-        local ok, size = pcall(function()
-            return eggItem:GetExtentsSize()
-        end)
-        if ok and size then
-            return size.Magnitude
-        end
+        local ok, size = pcall(function() return eggItem:GetExtentsSize() end)
+        if ok and size then return size.Magnitude end
     end
     
     local part = getEggPart(eggItem)
-    if part then
-        return part.Size.Magnitude
-    end
-    
-    return 0
+    return part and part.Size.Magnitude or 0
 end
 
 local function instantPrompt(item)
-    if item:IsA("ProximityPrompt") then
-        item.HoldDuration = 0
-    end
+    if item:IsA("ProximityPrompt") then item.HoldDuration = 0 end
     for _, desc in ipairs(item:GetDescendants()) do
-        if desc:IsA("ProximityPrompt") then
-            desc.HoldDuration = 0
-        end
+        if desc:IsA("ProximityPrompt") then desc.HoldDuration = 0 end
     end
 end
 
@@ -274,23 +249,15 @@ Workspace.DescendantAdded:Connect(function(descendant)
 end)
 
 local function removeESP(eggItem)
-    if eggItem:FindFirstChild("EggESP_Gui") then
-        eggItem.EggESP_Gui:Destroy()
-    end
-    if eggItem:FindFirstChild("EggESP_Highlight") then
-        eggItem.EggESP_Highlight:Destroy()
-    end
+    if eggItem:FindFirstChild("EggESP_Gui") then eggItem.EggESP_Gui:Destroy() end
+    if eggItem:FindFirstChild("EggESP_Highlight") then eggItem.EggESP_Highlight:Destroy() end
 end
 
 local function clearAllESP()
     for _, item in ipairs(FOLDER_PATH:GetChildren()) do
         local part = getEggPart(item)
-        if part then
-            removeESP(part)
-        end
-        if item:IsA("Model") then
-            removeESP(item)
-        end
+        if part then removeESP(part) end
+        if item:IsA("Model") then removeESP(item) end
     end
 end
 
@@ -308,27 +275,21 @@ screenGui.ResetOnSpawn = false
 screenGui.DisplayOrder = 999999
 screenGui.Parent = PlayerGui
 
-local floatingIcon = Instance.new("TextButton")
+local floatingIcon = Instance.new("TextButton", screenGui)
 floatingIcon.Name = "FloatingIcon"
 floatingIcon.Size = UDim2.new(0, 45, 0, 45)
 floatingIcon.Position = UDim2.new(0.05, 0, 0.15, 0)
 floatingIcon.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
-floatingIcon.BackgroundTransparency = 0
 floatingIcon.TextColor3 = Color3.fromRGB(255, 255, 255)
 floatingIcon.TextSize = 13
 floatingIcon.Font = Enum.Font.SourceSansBold
 floatingIcon.Text = "EGG"
 floatingIcon.Active = true
 floatingIcon.Draggable = true
-floatingIcon.Parent = screenGui
-
 addOutline(floatingIcon, 2)
+Instance.new("UICorner", floatingIcon).CornerRadius = UDim.new(1, 0)
 
-local iconCorner = Instance.new("UICorner")
-iconCorner.CornerRadius = UDim.new(1, 0)
-iconCorner.Parent = floatingIcon
-
-local mainFrame = Instance.new("Frame")
+local mainFrame = Instance.new("Frame", screenGui)
 mainFrame.Name = "MainFrame"
 mainFrame.Size = UDim2.new(0, 520, 0, 400)
 mainFrame.Position = UDim2.new(0.05, 0, 0.22, 0)
@@ -336,36 +297,17 @@ mainFrame.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
 mainFrame.BackgroundTransparency = 0.2
 mainFrame.BorderSizePixel = 0
 mainFrame.Active = true
-mainFrame.Parent = screenGui
-
 addOutline(mainFrame, 2.5)
-
-local uiCorner = Instance.new("UICorner")
-uiCorner.CornerRadius = UDim.new(0, 8)
-uiCorner.Parent = mainFrame
+Instance.new("UICorner", mainFrame).CornerRadius = UDim.new(0, 8)
 
 local dragging, dragInput, dragStart, startPos
-
-local function updateDrag(input)
-    local delta = input.Position - dragStart
-    mainFrame.Position = UDim2.new(
-        startPos.X.Scale, 
-        startPos.X.Offset + delta.X, 
-        startPos.Y.Scale, 
-        startPos.Y.Offset + delta.Y
-    )
-end
-
 mainFrame.InputBegan:Connect(function(input)
     if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
         dragging = true
         dragStart = input.Position
         startPos = mainFrame.Position
-        
         input.Changed:Connect(function()
-            if input.UserInputState == Enum.UserInputState.End then
-                dragging = false
-            end
+            if input.UserInputState == Enum.UserInputState.End then dragging = false end
         end)
     end
 end)
@@ -378,31 +320,26 @@ end)
 
 UserInputService.InputChanged:Connect(function(input)
     if input == dragInput and dragging then
-        updateDrag(input)
+        local delta = input.Position - dragStart
+        mainFrame.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
     end
 end)
 
-local resizeButton = Instance.new("TextButton")
+local resizeButton = Instance.new("TextButton", mainFrame)
 resizeButton.Size = UDim2.new(0, 15, 0, 15)
 resizeButton.Position = UDim2.new(1, -15, 1, -15)
 resizeButton.BackgroundTransparency = 1
 resizeButton.Text = ""
 resizeButton.Active = true
-resizeButton.Parent = mainFrame
 
-local resizing = false
-local resizeStart, startSize
-
+local resizing, resizeStart, startSize
 resizeButton.InputBegan:Connect(function(input)
     if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
         resizing = true
         resizeStart = input.Position
         startSize = mainFrame.AbsoluteSize
-        
         input.Changed:Connect(function()
-            if input.UserInputState == Enum.UserInputState.End then
-                resizing = false
-            end
+            if input.UserInputState == Enum.UserInputState.End then resizing = false end
         end)
     end
 end)
@@ -410,24 +347,18 @@ end)
 UserInputService.InputChanged:Connect(function(input)
     if resizing and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
         local delta = input.Position - resizeStart
-        local newWidth = math.clamp(startSize.X + delta.X, 400, 800)
-        local newHeight = math.clamp(startSize.Y + delta.Y, 300, 600)
-        mainFrame.Size = UDim2.new(0, newWidth, 0, newHeight)
+        mainFrame.Size = UDim2.new(0, math.clamp(startSize.X + delta.X, 400, 800), 0, math.clamp(startSize.Y + delta.Y, 300, 600))
     end
 end)
 
-local titleBar = Instance.new("Frame")
+local titleBar = Instance.new("Frame", mainFrame)
 titleBar.Size = UDim2.new(1, 0, 0, 30)
 titleBar.BackgroundColor3 = Color3.fromRGB(45, 45, 45)
 titleBar.BackgroundTransparency = 0.2
 titleBar.BorderSizePixel = 0
-titleBar.Parent = mainFrame
+Instance.new("UICorner", titleBar).CornerRadius = UDim.new(0, 8)
 
-local titleCorner = Instance.new("UICorner")
-titleCorner.CornerRadius = UDim.new(0, 8)
-titleCorner.Parent = titleBar
-
-local titleText = Instance.new("TextLabel")
+local titleText = Instance.new("TextLabel", titleBar)
 titleText.Size = UDim2.new(1, -70, 1, 0)
 titleText.Position = UDim2.new(0, 8, 0, 0)
 titleText.BackgroundTransparency = 1
@@ -436,9 +367,8 @@ titleText.TextSize = 13
 titleText.Font = Enum.Font.SourceSansBold
 titleText.Text = "Ride A Pet"
 titleText.TextXAlignment = Enum.TextXAlignment.Left
-titleText.Parent = titleBar
 
-local closeButton = Instance.new("TextButton")
+local closeButton = Instance.new("TextButton", titleBar)
 closeButton.Size = UDim2.new(0, 24, 0, 24)
 closeButton.Position = UDim2.new(1, -27, 0, 3)
 closeButton.BackgroundColor3 = Color3.fromRGB(180, 50, 50)
@@ -447,13 +377,9 @@ closeButton.TextColor3 = Color3.fromRGB(255, 255, 255)
 closeButton.TextSize = 12
 closeButton.Font = Enum.Font.SourceSansBold
 closeButton.Text = "X"
-closeButton.Parent = titleBar
+Instance.new("UICorner", closeButton).CornerRadius = UDim.new(0, 4)
 
-local closeCorner = Instance.new("UICorner")
-closeCorner.CornerRadius = UDim.new(0, 4)
-closeCorner.Parent = closeButton
-
-local hideButton = Instance.new("TextButton")
+local hideButton = Instance.new("TextButton", titleBar)
 hideButton.Size = UDim2.new(0, 24, 0, 24)
 hideButton.Position = UDim2.new(1, -55, 0, 3)
 hideButton.BackgroundColor3 = Color3.fromRGB(100, 100, 100)
@@ -462,25 +388,19 @@ hideButton.TextColor3 = Color3.fromRGB(255, 255, 255)
 hideButton.TextSize = 12
 hideButton.Font = Enum.Font.SourceSansBold
 hideButton.Text = "-"
-hideButton.Parent = titleBar
+Instance.new("UICorner", hideButton).CornerRadius = UDim.new(0, 4)
 
-local hideCorner = Instance.new("UICorner")
-hideCorner.CornerRadius = UDim.new(0, 4)
-hideCorner.Parent = hideButton
-
-local contentFrame = Instance.new("Frame")
+local contentFrame = Instance.new("Frame", mainFrame)
 contentFrame.Size = UDim2.new(1, -16, 1, -45)
 contentFrame.Position = UDim2.new(0, 8, 0, 38)
 contentFrame.BackgroundTransparency = 1
-contentFrame.Parent = mainFrame
 
-local leftPanel = Instance.new("Frame")
-leftPanel.Size = UDim2.new(0, 210, 1, 0)
+local leftPanel = Instance.new("Frame", contentFrame)
+leftPanel.Size = UDim2.new(0, 215, 1, 0)
 leftPanel.BackgroundTransparency = 1
-leftPanel.Parent = contentFrame
 
-local toggleButton = Instance.new("TextButton")
-toggleButton.Size = UDim2.new(1, -6, 0, 28)
+local toggleButton = Instance.new("TextButton", leftPanel)
+toggleButton.Size = UDim2.new(1, -4, 0, 28)
 toggleButton.Position = UDim2.new(0, 0, 0, 0)
 toggleButton.BackgroundColor3 = globalEspEnabled and Color3.fromRGB(0, 170, 255) or Color3.fromRGB(120, 0, 0)
 toggleButton.BackgroundTransparency = 0.2
@@ -488,14 +408,10 @@ toggleButton.TextColor3 = Color3.fromRGB(255, 255, 255)
 toggleButton.TextSize = 12
 toggleButton.Font = Enum.Font.SourceSansBold
 toggleButton.Text = globalEspEnabled and "ESP: ON" or "ESP: OFF"
-toggleButton.Parent = leftPanel
+Instance.new("UICorner", toggleButton).CornerRadius = UDim.new(0, 6)
 
-local toggleCorner = Instance.new("UICorner")
-toggleCorner.CornerRadius = UDim.new(0, 6)
-toggleCorner.Parent = toggleButton
-
-local tpDownButton = Instance.new("TextButton")
-tpDownButton.Size = UDim2.new(1, -6, 0, 28)
+local tpDownButton = Instance.new("TextButton", leftPanel)
+tpDownButton.Size = UDim2.new(1, -4, 0, 28)
 tpDownButton.Position = UDim2.new(0, 0, 0, 32)
 tpDownButton.BackgroundColor3 = Color3.fromRGB(80, 200, 80)
 tpDownButton.BackgroundTransparency = 0.2
@@ -503,34 +419,41 @@ tpDownButton.TextColor3 = Color3.fromRGB(255, 255, 255)
 tpDownButton.TextSize = 12
 tpDownButton.Font = Enum.Font.SourceSansBold
 tpDownButton.Text = "TP BASE"
-tpDownButton.Parent = leftPanel
+Instance.new("UICorner", tpDownButton).CornerRadius = UDim.new(0, 6)
 
-local tpDownCorner = Instance.new("UICorner")
-tpDownCorner.CornerRadius = UDim.new(0, 6)
-tpDownCorner.Parent = tpDownButton
+local farmContainer = Instance.new("Frame", leftPanel)
+farmContainer.Size = UDim2.new(1, -4, 0, 28)
+farmContainer.Position = UDim2.new(0, 0, 0, 64)
+farmContainer.BackgroundTransparency = 1
 
-local autoFarmButton = Instance.new("TextButton")
-autoFarmButton.Size = UDim2.new(1, -6, 0, 28)
-autoFarmButton.Position = UDim2.new(0, 0, 0, 64)
+local autoFarmButton = Instance.new("TextButton", farmContainer)
+autoFarmButton.Size = UDim2.new(0.48, 0, 1, 0)
+autoFarmButton.Position = UDim2.new(0, 0, 0, 0)
 autoFarmButton.BackgroundColor3 = autoFarmEnabled and Color3.fromRGB(0, 170, 255) or Color3.fromRGB(120, 0, 0)
 autoFarmButton.BackgroundTransparency = 0.2
 autoFarmButton.TextColor3 = Color3.fromRGB(255, 255, 255)
-autoFarmButton.TextSize = 12
+autoFarmButton.TextSize = 10
 autoFarmButton.Font = Enum.Font.SourceSansBold
 autoFarmButton.Text = autoFarmEnabled and "Auto Farm: ON" or "Auto Farm: OFF"
-autoFarmButton.Parent = leftPanel
+Instance.new("UICorner", autoFarmButton).CornerRadius = UDim.new(0, 6)
 
-local autoFarmCorner = Instance.new("UICorner")
-autoFarmCorner.CornerRadius = UDim.new(0, 6)
-autoFarmCorner.Parent = autoFarmButton
+local autoUpgradeButton = Instance.new("TextButton", farmContainer)
+autoUpgradeButton.Size = UDim2.new(0.48, 0, 1, 0)
+autoUpgradeButton.Position = UDim2.new(0.52, 0, 0, 0)
+autoUpgradeButton.BackgroundColor3 = autoUpgradeEnabled and Color3.fromRGB(46, 204, 113) or Color3.fromRGB(120, 0, 0)
+autoUpgradeButton.BackgroundTransparency = 0.2
+autoUpgradeButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+autoUpgradeButton.TextSize = 10
+autoUpgradeButton.Font = Enum.Font.SourceSansBold
+autoUpgradeButton.Text = autoUpgradeEnabled and "Auto Up: ON" or "Auto Up: OFF"
+Instance.new("UICorner", autoUpgradeButton).CornerRadius = UDim.new(0, 6)
 
-local hopContainer = Instance.new("Frame")
-hopContainer.Size = UDim2.new(1, -6, 0, 28)
+local hopContainer = Instance.new("Frame", leftPanel)
+hopContainer.Size = UDim2.new(1, -4, 0, 28)
 hopContainer.Position = UDim2.new(0, 0, 0, 96)
 hopContainer.BackgroundTransparency = 1
-hopContainer.Parent = leftPanel
 
-local hopButton = Instance.new("TextButton")
+local hopButton = Instance.new("TextButton", hopContainer)
 hopButton.Size = UDim2.new(0.48, 0, 1, 0)
 hopButton.Position = UDim2.new(0, 0, 0, 0)
 hopButton.BackgroundColor3 = Color3.fromRGB(138, 43, 226)
@@ -539,13 +462,9 @@ hopButton.TextColor3 = Color3.fromRGB(255, 255, 255)
 hopButton.TextSize = 10
 hopButton.Font = Enum.Font.SourceSansBold
 hopButton.Text = "HOP SERVER"
-hopButton.Parent = hopContainer
+Instance.new("UICorner", hopButton).CornerRadius = UDim.new(0, 6)
 
-local hopCorner = Instance.new("UICorner")
-hopCorner.CornerRadius = UDim.new(0, 6)
-hopCorner.Parent = hopButton
-
-local autoHopButton = Instance.new("TextButton")
+local autoHopButton = Instance.new("TextButton", hopContainer)
 autoHopButton.Size = UDim2.new(0.48, 0, 1, 0)
 autoHopButton.Position = UDim2.new(0.52, 0, 0, 0)
 autoHopButton.BackgroundColor3 = autoHopEnabled and Color3.fromRGB(0, 170, 255) or Color3.fromRGB(120, 0, 0)
@@ -554,55 +473,66 @@ autoHopButton.TextColor3 = Color3.fromRGB(255, 255, 255)
 autoHopButton.TextSize = 10
 autoHopButton.Font = Enum.Font.SourceSansBold
 autoHopButton.Text = autoHopEnabled and "Auto Execute: ON" or "Auto Execute: OFF"
-autoHopButton.Parent = hopContainer
+Instance.new("UICorner", autoHopButton).CornerRadius = UDim.new(0, 6)
 
-local autoHopCorner = Instance.new("UICorner")
-autoHopCorner.CornerRadius = UDim.new(0, 6)
-autoHopCorner.Parent = autoHopButton
-
-local rarityLabel = Instance.new("TextLabel")
-rarityLabel.Size = UDim2.new(1, -6, 0, 20)
-rarityLabel.Position = UDim2.new(0, 0, 0, 128)
+local rarityLabel = Instance.new("TextLabel", leftPanel)
+rarityLabel.Size = UDim2.new(0.48, 0, 0, 20)
+rarityLabel.Position = UDim2.new(0, 0, 0, 132)
 rarityLabel.BackgroundTransparency = 1
 rarityLabel.TextColor3 = Color3.fromRGB(200, 200, 200)
-rarityLabel.TextSize = 12
+rarityLabel.TextSize = 11
 rarityLabel.Font = Enum.Font.SourceSansBold
-rarityLabel.Text = "Filter Rarity:"
+rarityLabel.Text = "Rarity:"
 rarityLabel.TextXAlignment = Enum.TextXAlignment.Left
-rarityLabel.Parent = leftPanel
 
-local rarityScroll = Instance.new("ScrollingFrame")
-rarityScroll.Size = UDim2.new(1, 0, 1, -152)
-rarityScroll.Position = UDim2.new(0, 0, 0, 152)
+local eggFilterLabel = Instance.new("TextLabel", leftPanel)
+eggFilterLabel.Size = UDim2.new(0.48, 0, 0, 20)
+eggFilterLabel.Position = UDim2.new(0.52, 0, 0, 132)
+eggFilterLabel.BackgroundTransparency = 1
+eggFilterLabel.TextColor3 = Color3.fromRGB(200, 200, 200)
+eggFilterLabel.TextSize = 11
+eggFilterLabel.Font = Enum.Font.SourceSansBold
+eggFilterLabel.Text = "Egg Filter:"
+eggFilterLabel.TextXAlignment = Enum.TextXAlignment.Left
+
+local rarityScroll = Instance.new("ScrollingFrame", leftPanel)
+rarityScroll.Size = UDim2.new(0.48, 0, 1, -156)
+rarityScroll.Position = UDim2.new(0, 0, 0, 156)
 rarityScroll.BackgroundTransparency = 1
 rarityScroll.BorderSizePixel = 0
-rarityScroll.CanvasSize = UDim2.new(0, 0, 0, 210)
-rarityScroll.ScrollBarThickness = 4
-rarityScroll.Parent = leftPanel
+rarityScroll.CanvasSize = UDim2.new(0, 0, 0, 230)
+rarityScroll.ScrollBarThickness = 3
 
-local rightPanel = Instance.new("Frame")
-rightPanel.Size = UDim2.new(1, -220, 1, 0)
-rightPanel.Position = UDim2.new(0, 220, 0, 0)
+local eggFilterScroll = Instance.new("ScrollingFrame", leftPanel)
+eggFilterScroll.Size = UDim2.new(0.48, 0, 1, -156)
+eggFilterScroll.Position = UDim2.new(0.52, 0, 0, 156)
+eggFilterScroll.BackgroundTransparency = 1
+eggFilterScroll.BorderSizePixel = 0
+eggFilterScroll.CanvasSize = UDim2.new(0, 0, 0, 0)
+eggFilterScroll.AutomaticCanvasSize = Enum.AutomaticSize.Y
+eggFilterScroll.ScrollBarThickness = 3
+
+local eggFilterLayout = Instance.new("UIListLayout", eggFilterScroll)
+eggFilterLayout.SortOrder = Enum.SortOrder.LayoutOrder
+eggFilterLayout.Padding = UDim.new(0, 4)
+
+local rightPanel = Instance.new("Frame", contentFrame)
+rightPanel.Size = UDim2.new(1, -225, 1, 0)
+rightPanel.Position = UDim2.new(0, 225, 0, 0)
 rightPanel.BackgroundTransparency = 1
-rightPanel.Parent = contentFrame
 
-local scrollList = Instance.new("ScrollingFrame")
+local scrollList = Instance.new("ScrollingFrame", rightPanel)
 scrollList.Size = UDim2.new(1, 0, 1, 0)
 scrollList.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
 scrollList.BackgroundTransparency = 0.35
 scrollList.BorderSizePixel = 0
 scrollList.CanvasSize = UDim2.new(0, 0, 0, 0)
 scrollList.AutomaticCanvasSize = Enum.AutomaticSize.Y
-scrollList.Parent = rightPanel
+Instance.new("UICorner", scrollList).CornerRadius = UDim.new(0, 6)
 
-local scrollCorner = Instance.new("UICorner")
-scrollCorner.CornerRadius = UDim.new(0, 6)
-scrollCorner.Parent = scrollList
-
-local uiListLayout = Instance.new("UIListLayout")
+local uiListLayout = Instance.new("UIListLayout", scrollList)
 uiListLayout.SortOrder = Enum.SortOrder.LayoutOrder
 uiListLayout.Padding = UDim.new(0, 2)
-uiListLayout.Parent = scrollList
 
 local function setupESP(eggItem)
     local targetPart = getEggPart(eggItem)
@@ -619,23 +549,21 @@ local function setupESP(eggItem)
 
     removeESP(eggItem)
 
-    local highlight = Instance.new("Highlight")
+    local highlight = Instance.new("Highlight", eggItem)
     highlight.Name = "EggESP_Highlight"
     highlight.Adornee = eggItem
     highlight.FillColor = uniqueColor
     highlight.FillTransparency = 0.5
-    highlight.OutlineTransparency = 1 
-    highlight.Parent = eggItem
+    highlight.OutlineTransparency = 1
 
-    local billboard = Instance.new("BillboardGui")
+    local billboard = Instance.new("BillboardGui", eggItem)
     billboard.Name = "EggESP_Gui"
     billboard.Size = UDim2.new(0, 120, 0, 50)
     billboard.StudsOffset = Vector3.new(0, 2.5, 0)
     billboard.AlwaysOnTop = true
     billboard.Adornee = targetPart
-    billboard.Parent = eggItem
 
-    local textLabel = Instance.new("TextLabel")
+    local textLabel = Instance.new("TextLabel", billboard)
     textLabel.Name = "ESPText"
     textLabel.Size = UDim2.new(1, 0, 1, 0)
     textLabel.BackgroundTransparency = 1
@@ -643,7 +571,6 @@ local function setupESP(eggItem)
     textLabel.TextStrokeTransparency = 0
     textLabel.TextSize = 13
     textLabel.Font = Enum.Font.SourceSansBold
-    textLabel.Parent = billboard
 
     task.spawn(function()
         while billboard and billboard.Parent and targetPart and targetPart.Parent and globalEspEnabled and rarityToggles[eggRarity] do
@@ -666,17 +593,14 @@ local function refreshAllESP()
 end
 
 local function triggerPrompts(target)
-    if target:IsA("ProximityPrompt") then
-        fireproximityprompt(target)
-    end
-    for _, desc in ipairs(target:GetDescendants()) do
-        if desc:IsA("ProximityPrompt") then
-            fireproximityprompt(desc)
-        end
+    if target:IsA("ProximityPrompt") then fireproximityprompt(target) end
+    local descendants = target:GetDescendants()
+    for i = 1, #descendants do
+        local desc = descendants[i]
+        if desc:IsA("ProximityPrompt") then fireproximityprompt(desc) end
     end
 end
 
--- Fungsi proses pengambilan egg (TP Base menggunakan sumbu Y 40312 lalu -300 tanpa efek gravitasi)
 local function processEggCollection(item)
     if not item or not item.Parent then return end
     local part = getEggPart(item)
@@ -686,214 +610,213 @@ local function processEggCollection(item)
     local hrp = character.HumanoidRootPart
     local humanoid = character:FindFirstChildOfClass("Humanoid")
     
-    -- 1. TP ke atas egg (Offset 4)
-    hrp.CFrame = part.CFrame + Vector3.new(0, 4, 0)
+    hrp.CFrame = part.CFrame + Vector3.new(0, 10, 0)
     
-    -- 2. Fly Mode (Melayang agar tidak jatuh)
     local flying = true
-    local flyConn
-    flyConn = RunService.RenderStepped:Connect(function()
-        if not flying or not hrp or not hrp.Parent then
-            if flyConn then flyConn:Disconnect() end
-            return
-        end
-        hrp.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
-        hrp.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
-        if humanoid then
-            humanoid:ChangeState(Enum.HumanoidStateType.Physics)
-        end
+    local flyConn = RunService.RenderStepped:Connect(function()
+        if not flying or not hrp or not hrp.Parent then return end
+        hrp.AssemblyLinearVelocity = Vector3.zero
+        hrp.AssemblyAngularVelocity = Vector3.zero
+        if humanoid then humanoid:ChangeState(Enum.HumanoidStateType.Physics) end
     end)
     
-    -- 3. Jeda 1 detik sebelum pickup
-    task.wait(1)
-    
-    -- 4. Pickup sampai egg hilang dari folder
-    local targetItem = item
-    while targetItem and targetItem.Parent == FOLDER_PATH do
-        triggerPrompts(targetItem)
+    task.wait(0.5)
+    while item and item.Parent == FOLDER_PATH do
+        triggerPrompts(item)
         task.wait(0.3)
     end
+    task.wait(0.5)
     
-    -- 5. Jeda 1 detik setelah terangkat
-    task.wait(1)
-    
-    -- 6. Matikan mode fly dan TP ke base (Sumbu Y diset ke 40312 lalu dikurangi 300)
     flying = false
     if flyConn then flyConn:Disconnect() end
-    if humanoid then
-        humanoid:ChangeState(Enum.HumanoidStateType.GettingUp)
-    end
+    if humanoid then humanoid:ChangeState(Enum.HumanoidStateType.GettingUp) end
     
     local currentPos = hrp.Position
-    hrp.CFrame = CFrame.new(currentPos.X, 40312 - 300, currentPos.Z)
-    
-    -- Jeda tambahan sebelum lanjut ke egg berikutnya
+    hrp.CFrame = CFrame.new(currentPos.X, 40312 - 500, currentPos.Z)
     task.wait(1)
 end
 
+local updateEggFilterUI
+
+local updateQueued = false
 local function updateUIList()
-    for _, child in ipairs(scrollList:GetChildren()) do
-        if child:IsA("Frame") then
-            child:Destroy()
+    if updateQueued then return end
+    updateQueued = true
+
+    task.spawn(function()
+        task.wait(0.15)
+        updateQueued = false
+
+        local children = scrollList:GetChildren()
+        for i = 1, #children do
+            local child = children[i]
+            if child:IsA("Frame") then child:Destroy() end
         end
-    end
 
-    local children = FOLDER_PATH:GetChildren()
+        local eggChildren = FOLDER_PATH:GetChildren()
 
-    -- Pengurutan Prioritas: Rarity > Luck > Weight
-    table.sort(children, function(a, b)
-        local rarityA = getEggRarity(a.Name)
-        local rarityB = getEggRarity(b.Name)
-        local weightRarityA = rarityWeights[rarityA] or 0
-        local weightRarityB = rarityWeights[rarityB] or 0
-        
-        if weightRarityA ~= weightRarityB then
-            return weightRarityA > weightRarityB
-        else
-            local luckA = getEggLuck(a.Name)
-            local luckB = getEggLuck(b.Name)
-            if luckA ~= luckB then
-                return luckA > luckB
-            else
-                local sizeA = getEggWeight(a)
-                local sizeB = getEggWeight(b)
-                if sizeA ~= sizeB then
-                    return sizeA > sizeB
-                else
-                    return a.Name < b.Name
-                end
+        table.sort(eggChildren, function(a, b)
+            local weightA = rarityWeights[getEggRarity(a.Name)] or 0
+            local weightB = rarityWeights[getEggRarity(b.Name)] or 0
+            if weightA ~= weightB then return weightA > weightB end
+            
+            local luckA, luckB = getEggLuck(a.Name), getEggLuck(b.Name)
+            if luckA ~= luckB then return luckA > luckB end
+            
+            local sizeA, sizeB = getEggWeight(a), getEggWeight(b)
+            if sizeA ~= sizeB then return sizeA > sizeB end
+            
+            return a.Name < b.Name
+        end)
+
+        for i = 1, #eggChildren do
+            local item = eggChildren[i]
+            local eggName = item.Name
+            local eggRarity = getEggRarity(eggName)
+
+            if rarityToggles[eggRarity] then
+                local rowFrame = Instance.new("Frame", scrollList)
+                rowFrame.Size = UDim2.new(1, -6, 0, 26)
+                rowFrame.BackgroundTransparency = 1
+
+                local infoLabel = Instance.new("TextLabel", rowFrame)
+                infoLabel.Size = UDim2.new(1, -72, 1, 0)
+                infoLabel.BackgroundColor3 = Color3.fromRGB(45, 45, 45)
+                infoLabel.BackgroundTransparency = 0.25
+                infoLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+                infoLabel.TextSize = 11
+                infoLabel.Font = Enum.Font.SourceSansBold
+                infoLabel.Text = " " .. eggName .. " [" .. eggRarity .. "]"
+                infoLabel.TextXAlignment = Enum.TextXAlignment.Left
+                Instance.new("UICorner", infoLabel).CornerRadius = UDim.new(0, 4)
+
+                local tpButton = Instance.new("TextButton", rowFrame)
+                tpButton.Size = UDim2.new(0, 30, 1, 0)
+                tpButton.Position = UDim2.new(1, -68, 0, 0)
+                tpButton.BackgroundColor3 = Color3.fromRGB(60, 60, 180)
+                tpButton.BackgroundTransparency = 0.2
+                tpButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+                tpButton.TextSize = 11
+                tpButton.Font = Enum.Font.SourceSansBold
+                tpButton.Text = "TP"
+                Instance.new("UICorner", tpButton).CornerRadius = UDim.new(0, 4)
+
+                tpButton.MouseButton1Click:Connect(function()
+                    if item and item.Parent then
+                        local part = getEggPart(item)
+                        if part and LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart") then
+                            LocalPlayer.Character.HumanoidRootPart.CFrame = part.CFrame + Vector3.new(0, 10, 0)
+                        end
+                    end
+                end)
+
+                local autoButton = Instance.new("TextButton", rowFrame)
+                autoButton.Size = UDim2.new(0, 34, 1, 0)
+                autoButton.Position = UDim2.new(1, -34, 0, 0)
+                autoButton.BackgroundColor3 = Color3.fromRGB(0, 170, 255)
+                autoButton.BackgroundTransparency = 0.2
+                autoButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+                autoButton.TextSize = 10
+                autoButton.Font = Enum.Font.SourceSansBold
+                autoButton.Text = "Auto"
+                Instance.new("UICorner", autoButton).CornerRadius = UDim.new(0, 4)
+
+                autoButton.MouseButton1Click:Connect(function()
+                    task.spawn(function() processEggCollection(item) end)
+                end)
             end
         end
     end)
+end
 
-    for _, item in ipairs(children) do
-        local eggName = item.Name
-        local eggRarity = getEggRarity(eggName)
-        local passRarityFilter = (rarityToggles[eggRarity] == true)
+updateEggFilterUI = function()
+    local children = eggFilterScroll:GetChildren()
+    for i = 1, #children do
+        local child = children[i]
+        if child:IsA("Frame") then child:Destroy() end
+    end
 
-        if passRarityFilter then
-            local rowFrame = Instance.new("Frame")
-            rowFrame.Size = UDim2.new(1, -6, 0, 26)
-            rowFrame.BackgroundTransparency = 1
-            rowFrame.Parent = scrollList
-
-            local infoLabel = Instance.new("TextLabel")
-            infoLabel.Size = UDim2.new(1, -72, 1, 0)
-            infoLabel.BackgroundColor3 = Color3.fromRGB(45, 45, 45)
-            infoLabel.BackgroundTransparency = 0.25
-            infoLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
-            infoLabel.TextSize = 11
-            infoLabel.Font = Enum.Font.SourceSansBold
-            infoLabel.Text = " " .. eggName .. " [" .. eggRarity .. "]"
-            infoLabel.TextXAlignment = Enum.TextXAlignment.Left
-            infoLabel.Parent = rowFrame
-
-            local infoCorner = Instance.new("UICorner")
-            infoCorner.CornerRadius = UDim.new(0, 4)
-            infoCorner.Parent = infoLabel
-
-            local tpButton = Instance.new("TextButton")
-            tpButton.Size = UDim2.new(0, 30, 1, 0)
-            tpButton.Position = UDim2.new(1, -68, 0, 0)
-            tpButton.BackgroundColor3 = Color3.fromRGB(60, 60, 180)
-            tpButton.BackgroundTransparency = 0.2
-            tpButton.TextColor3 = Color3.fromRGB(255, 255, 255)
-            tpButton.TextSize = 11
-            tpButton.Font = Enum.Font.SourceSansBold
-            tpButton.Text = "TP"
-            tpButton.Parent = rowFrame
-
-            local tpCorner = Instance.new("UICorner")
-            tpCorner.CornerRadius = UDim.new(0, 4)
-            tpCorner.Parent = tpButton
-
-            tpButton.MouseButton1Click:Connect(function()
-                if item and item.Parent then
-                    local part = getEggPart(item)
-                    if part and LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart") then
-                        LocalPlayer.Character.HumanoidRootPart.CFrame = part.CFrame + Vector3.new(0, 4, 0)
-                    end
-                end
-            end)
-
-            local autoButton = Instance.new("TextButton")
-            autoButton.Size = UDim2.new(0, 34, 1, 0)
-            autoButton.Position = UDim2.new(1, -34, 0, 0)
-            autoButton.BackgroundColor3 = Color3.fromRGB(0, 170, 255)
-            autoButton.BackgroundTransparency = 0.2
-            autoButton.TextColor3 = Color3.fromRGB(255, 255, 255)
-            autoButton.TextSize = 10
-            autoButton.Font = Enum.Font.SourceSansBold
-            autoButton.Text = "Auto"
-            autoButton.Parent = rowFrame
-
-            local autoCorner = Instance.new("UICorner")
-            autoCorner.CornerRadius = UDim.new(0, 4)
-            autoCorner.Parent = autoButton
-
-            autoButton.MouseButton1Click:Connect(function()
-                task.spawn(function()
-                    processEggCollection(item)
-                end)
-            end)
+    local filteredEggs = {}
+    for eggName, rarity in pairs(eggRarityDatabase) do
+        if rarityToggles[rarity] then
+            table.insert(filteredEggs, eggName)
         end
     end
+
+    table.sort(filteredEggs, function(a, b)
+        return getEggLuck(a) > getEggLuck(b)
+    end)
+
+    for i = 1, #filteredEggs do
+        local eggName = filteredEggs[i]
+        if eggAutoToggles[eggName] == nil then
+            eggAutoToggles[eggName] = true
+        end
+        local isStateOn = eggAutoToggles[eggName]
+
+        local eggRow = Instance.new("Frame", eggFilterScroll)
+        eggRow.Size = UDim2.new(1, 0, 0, 24)
+        eggRow.BackgroundTransparency = 1
+
+        local eggBtn = Instance.new("TextButton", eggRow)
+        eggBtn.Size = UDim2.new(1, 0, 1, 0)
+        eggBtn.BackgroundColor3 = isStateOn and Color3.fromRGB(0, 170, 255) or Color3.fromRGB(120, 0, 0)
+        eggBtn.BackgroundTransparency = 0.2
+        eggBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+        eggBtn.TextSize = 11
+        eggBtn.Font = Enum.Font.SourceSansBold
+        eggBtn.Text = eggName .. ":" .. (isStateOn and "ON" or "OFF")
+        Instance.new("UICorner", eggBtn).CornerRadius = UDim.new(0, 4)
+
+        eggBtn.MouseButton1Click:Connect(function()
+            eggAutoToggles[eggName] = not eggAutoToggles[eggName]
+            local state = eggAutoToggles[eggName]
+            eggBtn.BackgroundColor3 = state and Color3.fromRGB(0, 170, 255) or Color3.fromRGB(120, 0, 0)
+            eggBtn.Text = eggName .. ":" .. (state and "ON" or "OFF")
+            saveSettings()
+        end)
+    end
 end
+
+-- Background Loop: Auto Upgrade (Jeda 5 Detik saat ON, berhenti total saat OFF)
+task.spawn(function()
+    while true do
+        if autoUpgradeEnabled then
+            pcall(function()
+                local upgradeEvent = ReplicatedStorage:FindFirstChild("Remotes") 
+                    and ReplicatedStorage.Remotes.Game 
+                    and ReplicatedStorage.Remotes.Game.Plot 
+                    and ReplicatedStorage.Remotes.Game.Plot.Upgrades
+                if upgradeEvent then upgradeEvent:FireServer("Max") end
+            end)
+            task.wait(5) -- Jeda diubah menjadi 5 detik
+        else
+            task.wait(0.5) -- Berhenti atau menunggu sampai di-on-kan kembali
+        end
+    end
+end)
 
 task.spawn(function()
     while true do
         if autoFarmEnabled then
-            local character = LocalPlayer.Character
-            local hrp = character and character:FindFirstChild("HumanoidRootPart")
-            
+            local hrp = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
             if hrp then
                 local farmedAny = false
                 local children = FOLDER_PATH:GetChildren()
-                
-                table.sort(children, function(a, b)
-                    local rarityA = getEggRarity(a.Name)
-                    local rarityB = getEggRarity(b.Name)
-                    local weightRarityA = rarityWeights[rarityA] or 0
-                    local weightRarityB = rarityWeights[rarityB] or 0
-                    
-                    if weightRarityA ~= weightRarityB then
-                        return weightRarityA > weightRarityB
-                    else
-                        local luckA = getEggLuck(a.Name)
-                        local luckB = getEggLuck(b.Name)
-                        if luckA ~= luckB then
-                            return luckA > luckB
-                        else
-                            local sizeA = getEggWeight(a)
-                            local sizeB = getEggWeight(b)
-                            if sizeA ~= sizeB then
-                                return sizeA > sizeB
-                            else
-                                return a.Name < b.Name
-                            end
-                        end
-                    end
-                end)
-                
-                for _, item in ipairs(children) do
+                for i = 1, #children do
+                    local item = children[i]
                     if not autoFarmEnabled then break end
                     local eggName = item.Name
                     local eggRarity = getEggRarity(eggName)
                     
-                    if rarityToggles[eggRarity] then
-                        local part = getEggPart(item)
-                        if part then
-                            farmedAny = true
-                            processEggCollection(item)
-                            task.wait(1)
-                            break
-                        end
+                    if rarityToggles[eggRarity] and (eggAutoToggles[eggName] ~= false) and getEggPart(item) then
+                        farmedAny = true
+                        processEggCollection(item)
+                        task.wait(1)
+                        break
                     end
                 end
-                
-                if not farmedAny then
-                    task.wait(1)
-                end
+                if not farmedAny then task.wait(1) end
             else
                 task.wait(1)
             end
@@ -906,120 +829,92 @@ end)
 local rarityListOrder = {"Ethereal", "Divine", "Mythic", "Legendary", "Epic", "Rare", "Common"}
 local rarityYPos = 0
 
-for _, rarityName in ipairs(rarityListOrder) do
+for i = 1, #rarityListOrder do
+    local rarityName = rarityListOrder[i]
     local isToggled = rarityToggles[rarityName]
-    local rBtn = Instance.new("TextButton")
-    rBtn.Size = UDim2.new(1, -6, 0, 24)
+    local rBtn = Instance.new("TextButton", rarityScroll)
+    rBtn.Size = UDim2.new(1, 0, 0, 24)
     rBtn.Position = UDim2.new(0, 0, 0, rarityYPos)
     rBtn.BackgroundColor3 = isToggled and Color3.fromRGB(0, 170, 255) or Color3.fromRGB(120, 0, 0)
     rBtn.BackgroundTransparency = 0.2
     rBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
     rBtn.TextSize = 11
     rBtn.Font = Enum.Font.SourceSansBold
-    rBtn.Text = rarityName .. " : " .. (isToggled and "ON" or "OFF")
-    rBtn.Parent = rarityScroll
-
-    local rCorner = Instance.new("UICorner")
-    rCorner.CornerRadius = UDim.new(0, 4)
-    rCorner.Parent = rBtn
+    rBtn.Text = rarityName .. ":" .. (isToggled and "ON" or "OFF")
+    Instance.new("UICorner", rBtn).CornerRadius = UDim.new(0, 4)
 
     rBtn.MouseButton1Click:Connect(function()
         rarityToggles[rarityName] = not rarityToggles[rarityName]
         local state = rarityToggles[rarityName]
         rBtn.BackgroundColor3 = state and Color3.fromRGB(0, 170, 255) or Color3.fromRGB(120, 0, 0)
-        rBtn.Text = rarityName .. " : " .. (state and "ON" or "OFF")
+        rBtn.Text = rarityName .. ":" .. (state and "ON" or "OFF")
         
         saveSettings()
         updateUIList()
         refreshAllESP()
+        updateEggFilterUI()
     end)
 
     rarityYPos = rarityYPos + 28
 end
 
-floatingIcon.MouseButton1Click:Connect(function()
-    mainFrame.Visible = not mainFrame.Visible
-end)
-
+floatingIcon.MouseButton1Click:Connect(function() mainFrame.Visible = not mainFrame.Visible end)
 closeButton.MouseButton1Click:Connect(function()
-    globalEspEnabled = false
-    autoFarmEnabled = false
+    globalEspEnabled, autoFarmEnabled, autoUpgradeEnabled = false, false, false
     saveSettings()
     clearAllESP()
     screenGui:Destroy()
 end)
-
-hideButton.MouseButton1Click:Connect(function()
-    mainFrame.Visible = false
-end)
+hideButton.MouseButton1Click:Connect(function() mainFrame.Visible = false end)
 
 toggleButton.MouseButton1Click:Connect(function()
     globalEspEnabled = not globalEspEnabled
-    if globalEspEnabled then
-        toggleButton.Text = "ESP: ON"
-        toggleButton.BackgroundColor3 = Color3.fromRGB(0, 170, 255)
-    else
-        toggleButton.Text = "ESP: OFF"
-        toggleButton.BackgroundColor3 = Color3.fromRGB(120, 0, 0)
-        clearAllESP()
-    end
+    toggleButton.Text = globalEspEnabled and "ESP: ON" or "ESP: OFF"
+    toggleButton.BackgroundColor3 = globalEspEnabled and Color3.fromRGB(0, 170, 255) or Color3.fromRGB(120, 0, 0)
+    if not globalEspEnabled then clearAllESP() end
     saveSettings()
     refreshAllESP()
 end)
 
 tpDownButton.MouseButton1Click:Connect(function()
-    local character = LocalPlayer.Character
-    if character and character:FindFirstChild("HumanoidRootPart") then
-        local hrp = character.HumanoidRootPart
-        local currentPos = hrp.Position
-        hrp.CFrame = CFrame.new(currentPos.X, 40312 - 300, currentPos.Z)
-    end
+    local hrp = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+    if hrp then hrp.CFrame = CFrame.new(hrp.Position.X, 40312 - 500, hrp.Position.Z) end
 end)
 
 autoFarmButton.MouseButton1Click:Connect(function()
     autoFarmEnabled = not autoFarmEnabled
-    if autoFarmEnabled then
-        autoFarmButton.Text = "Auto Farm: ON"
-        autoFarmButton.BackgroundColor3 = Color3.fromRGB(0, 170, 255)
-    else
-        autoFarmButton.Text = "Auto Farm: OFF"
-        autoFarmButton.BackgroundColor3 = Color3.fromRGB(120, 0, 0)
-    end
+    autoFarmButton.Text = autoFarmEnabled and "Auto Farm: ON" or "Auto Farm: OFF"
+    autoFarmButton.BackgroundColor3 = autoFarmEnabled and Color3.fromRGB(0, 170, 255) or Color3.fromRGB(120, 0, 0)
     saveSettings()
 end)
 
-hopButton.MouseButton1Click:Connect(function()
-    hopServer()
+autoUpgradeButton.MouseButton1Click:Connect(function()
+    autoUpgradeEnabled = not autoUpgradeEnabled
+    autoUpgradeButton.Text = autoUpgradeEnabled and "Auto Up: ON" or "Auto Up: OFF"
+    autoUpgradeButton.BackgroundColor3 = autoUpgradeEnabled and Color3.fromRGB(46, 204, 113) or Color3.fromRGB(120, 0, 0)
+    saveSettings()
 end)
 
+hopButton.MouseButton1Click:Connect(hopServer)
 autoHopButton.MouseButton1Click:Connect(function()
     autoHopEnabled = not autoHopEnabled
-    if autoHopEnabled then
-        autoHopButton.Text = "Auto Execute: ON"
-        autoHopButton.BackgroundColor3 = Color3.fromRGB(0, 170, 255)
-    else
-        autoHopButton.Text = "Auto Execute: OFF"
-        autoHopButton.BackgroundColor3 = Color3.fromRGB(120, 0, 0)
-    end
+    autoHopButton.Text = autoHopEnabled and "Auto Execute: ON" or "Auto Execute: OFF"
+    autoHopButton.BackgroundColor3 = autoHopEnabled and Color3.fromRGB(0, 170, 255) or Color3.fromRGB(120, 0, 0)
     saveSettings()
 end)
 
 FOLDER_PATH.ChildAdded:Connect(function(item)
     task.wait(0.1)
     instantPrompt(item)
-    if globalEspEnabled then
-        setupESP(item)
-    end
+    if globalEspEnabled then setupESP(item) end
     updateUIList()
 end)
 
-FOLDER_PATH.ChildRemoved:Connect(function(item)
+FOLDER_PATH.ChildRemoved:Connect(function()
     updateUIList()
 end)
 
 clearAllESP()
 updateUIList()
-
-if globalEspEnabled then
-    refreshAllESP()
-end
+updateEggFilterUI()
+if globalEspEnabled then refreshAllESP() end
