@@ -1,3 +1,18 @@
+-- ==========================================
+-- SISTEM PEMBERSIHAN THREAD/KONEKSI LAMA
+-- ==========================================
+if getgenv().RideAPet_Connections then
+    for _, conn in pairs(getgenv().RideAPet_Connections) do
+        if typeof(conn) == "RBXScriptConnection" then
+            conn:Disconnect()
+        elseif typeof(conn) == "thread" then
+            task.cancel(conn)
+        end
+    end
+end
+
+getgenv().RideAPet_Connections = {}
+
 local Players = game:GetService("Players")
 local Workspace = game:GetService("Workspace")
 local UserInputService = game:GetService("UserInputService")
@@ -241,12 +256,13 @@ for _, descendant in ipairs(Workspace:GetDescendants()) do
     instantPrompt(descendant)
 end
 
-Workspace.DescendantAdded:Connect(function(descendant)
+local descConn = Workspace.DescendantAdded:Connect(function(descendant)
     task.spawn(function()
         task.wait(0.1)
         instantPrompt(descendant)
     end)
 end)
+table.insert(getgenv().RideAPet_Connections, descConn)
 
 local function removeESP(eggItem)
     if eggItem:FindFirstChild("EggESP_Gui") then eggItem.EggESP_Gui:Destroy() end
@@ -572,7 +588,7 @@ local function setupESP(eggItem)
     textLabel.TextSize = 13
     textLabel.Font = Enum.Font.SourceSansBold
 
-    task.spawn(function()
+    local espThread = task.spawn(function()
         while billboard and billboard.Parent and targetPart and targetPart.Parent and globalEspEnabled and rarityToggles[eggRarity] do
             local character = LocalPlayer.Character
             if character and character:FindFirstChild("HumanoidRootPart") then
@@ -584,6 +600,7 @@ local function setupESP(eggItem)
             task.wait(0.3)
         end
     end)
+    table.insert(getgenv().RideAPet_Connections, espThread)
 end
 
 local function refreshAllESP()
@@ -619,6 +636,7 @@ local function processEggCollection(item)
         hrp.AssemblyAngularVelocity = Vector3.zero
         if humanoid then humanoid:ChangeState(Enum.HumanoidStateType.Physics) end
     end)
+    table.insert(getgenv().RideAPet_Connections, flyConn)
     
     task.wait(0.5)
     while item and item.Parent == FOLDER_PATH do
@@ -643,7 +661,7 @@ local function updateUIList()
     if updateQueued then return end
     updateQueued = true
 
-    task.spawn(function()
+    local t = task.spawn(function()
         task.wait(0.15)
         updateQueued = false
 
@@ -727,6 +745,7 @@ local function updateUIList()
             end
         end
     end)
+    table.insert(getgenv().RideAPet_Connections, t)
 end
 
 updateEggFilterUI = function()
@@ -778,8 +797,8 @@ updateEggFilterUI = function()
     end
 end
 
--- Background Loop: Auto Upgrade (Jeda 5 Detik saat ON, berhenti total saat OFF)
-task.spawn(function()
+-- Background Loop: Auto Upgrade (Jeda 5 Detik saat ON)
+local upThread = task.spawn(function()
     while true do
         if autoUpgradeEnabled then
             pcall(function()
@@ -789,14 +808,16 @@ task.spawn(function()
                     and ReplicatedStorage.Remotes.Game.Plot.Upgrades
                 if upgradeEvent then upgradeEvent:FireServer("Max") end
             end)
-            task.wait(5) -- Jeda diubah menjadi 5 detik
+            task.wait(5)
         else
-            task.wait(0.5) -- Berhenti atau menunggu sampai di-on-kan kembali
+            task.wait(0.5)
         end
     end
 end)
+table.insert(getgenv().RideAPet_Connections, upThread)
 
-task.spawn(function()
+-- Background Loop: Auto Farm
+local farmThread = task.spawn(function()
     while true do
         if autoFarmEnabled then
             local hrp = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
@@ -825,6 +846,7 @@ task.spawn(function()
         end
     end
 end)
+table.insert(getgenv().RideAPet_Connections, farmThread)
 
 local rarityListOrder = {"Ethereal", "Divine", "Mythic", "Legendary", "Epic", "Rare", "Common"}
 local rarityYPos = 0
@@ -903,16 +925,18 @@ autoHopButton.MouseButton1Click:Connect(function()
     saveSettings()
 end)
 
-FOLDER_PATH.ChildAdded:Connect(function(item)
+local childAddConn = FOLDER_PATH.ChildAdded:Connect(function(item)
     task.wait(0.1)
     instantPrompt(item)
     if globalEspEnabled then setupESP(item) end
     updateUIList()
 end)
+table.insert(getgenv().RideAPet_Connections, childAddConn)
 
-FOLDER_PATH.ChildRemoved:Connect(function()
+local childRemConn = FOLDER_PATH.ChildRemoved:Connect(function()
     updateUIList()
 end)
+table.insert(getgenv().RideAPet_Connections, childRemConn)
 
 clearAllESP()
 updateUIList()
