@@ -19,7 +19,6 @@ local UserInputService = game:GetService("UserInputService")
 local RunService = game:GetService("RunService")
 local HttpService = game:GetService("HttpService")
 local TeleportService = game:GetService("TeleportService")
-local TweenService = game:GetService("TweenService")
 local CoreGui = game:GetService("CoreGui")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
@@ -184,9 +183,9 @@ local eggRarityDatabase = {
     ["Cracked Egg"] = "Rare", ["Easter Egg"] = "Rare", ["Stone Egg"] = "Rare", ["Leaf Egg"] = "Rare",
     ["Mushroom Egg"] = "Epic", ["Flower Egg"] = "Epic", ["Slime Egg"] = "Epic", ["Ice Egg"] = "Epic",
     ["Glass Egg"] = "Legendary", ["Golden Egg"] = "Legendary",
-    ["Crystal Egg"] = "Mythic", ["Flaming Egg"] = "Mythic", ["Skull Egg"] = "Mythic", ["Soul Egg"] = "Mythic", ["Dominus Egg"] = "Mythic", ["Sinister Egg"] = "Mythic",
-    ["Aurora Egg"] = "Divine", ["Galaxy Egg"] = "Divine",
-    ["Blackhole Egg"] = "Ethereal", ["Solaris Egg"] = "Ethereal", ["Cherub Egg"] = "Ethereal"
+    ["Tidal Egg"] = "Mythic", ["Crystal Egg"] = "Mythic", ["Flaming Egg"] = "Mythic", ["Skull Egg"] = "Mythic", ["Soul Egg"] = "Mythic", ["Dominus Egg"] = "Mythic", ["Sinister Egg"] = "Mythic",
+    ["Bloom Egg"] = "Divine", ["Aurora Egg"] = "Divine", ["Galaxy Egg"] = "Divine",
+    ["Volcanic Egg"] = "Ethereal", ["Blackhole Egg"] = "Ethereal", ["Solaris Egg"] = "Ethereal", ["Cherub Egg"] = "Ethereal"
 }
 
 local eggLuckDatabase = {
@@ -194,9 +193,9 @@ local eggLuckDatabase = {
     ["Cracked Egg"] = 30, ["Easter Egg"] = 50, ["Stone Egg"] = 100, ["Leaf Egg"] = 200,
     ["Mushroom Egg"] = 500, ["Flower Egg"] = 750, ["Slime Egg"] = 1000, ["Ice Egg"] = 3000,
     ["Glass Egg"] = 10000, ["Golden Egg"] = 30000,
-    ["Crystal Egg"] = 150000, ["Skull Egg"] = 250000, ["Dominus Egg"] = 700000, ["Flaming Egg"] = 1000000, ["Sinister Egg"] = 3000000, ["Soul Egg"] = 7000000,
-    ["Aurora Egg"] = 300000000, ["Galaxy Egg"] = 1500000000,
-    ["Blackhole Egg"] = 100000000000, ["Solaris Egg"] = 300000000000, ["Cherub Egg"] = 1000000000000
+    ["Tidal Egg"] = 8000000, ["Crystal Egg"] = 150000, ["Skull Egg"] = 250000, ["Dominus Egg"] = 700000, ["Flaming Egg"] = 1000000, ["Sinister Egg"] = 3000000, ["Soul Egg"] = 7000000,
+    ["Bloom Egg"] = 2000000000, ["Aurora Egg"] = 300000000, ["Galaxy Egg"] = 1500000000,
+    ["Volcanic Egg"] = 2500000000000, ["Blackhole Egg"] = 100000000000, ["Solaris Egg"] = 300000000000, ["Cherub Egg"] = 1000000000000
 }
 
 local rarityWeights = {
@@ -693,6 +692,55 @@ local function triggerPrompts(target)
     end
 end
 
+-- Fungsi TP Base berdasarkan Plot Pemilik atau Indeks ke-6 dari workspace.Plots
+local function teleportToBase()
+    local hrp = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+    if not hrp then return end
+    
+    local targetPlot = nil
+    local plotsFolder = Workspace:FindFirstChild("Plots")
+    
+    if plotsFolder then
+        local plotsList = plotsFolder:GetChildren()
+        
+        -- Cari berdasarkan Data.Owner
+        for _, plot in ipairs(plotsList) do
+            local data = plot:FindFirstChild("Data")
+            if data then
+                local owner = data:FindFirstChild("Owner")
+                if owner and (owner.Value == LocalPlayer or owner.Value == LocalPlayer.Name) then
+                    targetPlot = plot
+                    break
+                end
+            end
+        end
+        
+        -- Fallback ke indeks ke-6 jika belum ketemu
+        if not targetPlot and #plotsList >= 6 then
+            targetPlot = plotsList[6]
+        end
+    end
+    
+    if targetPlot then
+        local cf = nil
+        if targetPlot:IsA("Model") then
+            cf = targetPlot:GetPivot()
+        else
+            local part = targetPlot:FindFirstChildWhichIsA("BasePart", true)
+            if part then cf = part.CFrame end
+        end
+        
+        if cf then
+            hrp.CFrame = cf + Vector3.new(0, 5, 0)
+            return
+        end
+    end
+    
+    -- Fallback terakhir jika plot tidak ditemukan
+    local currentPos = hrp.Position
+    hrp.CFrame = CFrame.new(currentPos.X, 40312 - 500, currentPos.Z)
+end
+
 local function processEggCollection(item)
     if not item or not item.Parent then return end
     local part = getEggPart(item)
@@ -703,6 +751,26 @@ local function processEggCollection(item)
     local humanoid = character:FindFirstChildOfClass("Humanoid")
     local eggName = item.Name
     
+    -- Aktifkan Noclip selama 2 detik saat teleport ke telur
+    local noclipDuration = 2
+    local startTime = tick()
+    local noclipConn
+    noclipConn = RunService.Stepped:Connect(function()
+        if tick() - startTime > noclipDuration then
+            if noclipConn then noclipConn:Disconnect() end
+            return
+        end
+        local char = LocalPlayer.Character
+        if char then
+            for _, v in ipairs(char:GetDescendants()) do
+                if v:IsA("BasePart") then
+                    v.CanCollide = false
+                end
+            end
+        end
+    end)
+    table.insert(getgenv().RideAPet_Connections, noclipConn)
+
     hrp.CFrame = part.CFrame + Vector3.new(0, 10, 0)
     
     local flying = true
@@ -725,22 +793,10 @@ local function processEggCollection(item)
     if flyConn then flyConn:Disconnect() end
     if humanoid then humanoid:ChangeState(Enum.HumanoidStateType.GettingUp) end
     
-    -- Logika Tujuan Akhir (Feed Area dengan Tween maksimal 6 detik untuk jarak jauh, Tunggu 1 Detik lalu Drop)
+    -- Logika Tujuan Akhir (Feed Area atau Base Utama)
     if feedAreaEnabled and feedTargetPosition then
-        local targetCF = CFrame.new(feedTargetPosition)
-        local distance = (hrp.Position - targetCF.Position).Magnitude
-        
-        -- Durasi tweening: jika dekat cepat, jika jauh durasi maksimal dibatasi 6 detik
-        local speed = 250 -- Kecepatan rata-rata studs per detik
-        local duration = math.clamp(distance / speed, 0.5, 6.0)
-        
-        local tweenInfo = TweenInfo.new(duration, Enum.EasingStyle.Linear)
-        local tween = TweenService:Create(hrp, tweenInfo, {CFrame = targetCF})
-        tween:Play()
-        tween.Completed:Wait()
-        
-        -- Tunggu 1 detik setelah sampai di titik sebelum menurunkan egg
-        task.wait(1.0)
+        hrp.CFrame = CFrame.new(feedTargetPosition + Vector3.new(0, 5, 0))
+        task.wait(0.3)
         
         -- Eksekusi Remote BasketDrop dengan nama telur yang diangkat
         pcall(function()
@@ -752,8 +808,7 @@ local function processEggCollection(item)
             end
         end)
     else
-        local currentPos = hrp.Position
-        hrp.CFrame = CFrame.new(currentPos.X, 40312 - 500, currentPos.Z)
+        teleportToBase()
     end
     
     task.wait(1)
@@ -1004,8 +1059,7 @@ toggleButton.MouseButton1Click:Connect(function()
 end)
 
 tpDownButton.MouseButton1Click:Connect(function()
-    local hrp = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
-    if hrp then hrp.CFrame = CFrame.new(hrp.Position.X, 40312 - 500, hrp.Position.Z) end
+    teleportToBase()
 end)
 
 autoFarmButton.MouseButton1Click:Connect(function()
