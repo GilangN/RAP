@@ -21,6 +21,7 @@ local HttpService = game:GetService("HttpService")
 local TeleportService = game:GetService("TeleportService")
 local CoreGui = game:GetService("CoreGui")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local TweenService = game:GetService("TweenService")
 
 local LocalPlayer = Players.LocalPlayer
 local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
@@ -40,6 +41,10 @@ local autoUpgradeEnabled = false
 -- Variabel Fitur Feed Area Baru
 local feedAreaEnabled = false
 local feedTargetPosition = nil
+
+-- Koordinat Khusus (Hanya digunakan untuk Volcanic Egg)
+local SPECIAL_POS_1 = Vector3.new(-4916, 41297, -3716)
+local SPECIAL_POS_2 = Vector3.new(-4980, 41278, -3629)
 
 local VisitedServers = { [game.JobId] = true }
 
@@ -286,27 +291,30 @@ end
 local screenGui = Instance.new("ScreenGui")
 screenGui.Name = "RideAPet_UI"
 screenGui.ResetOnSpawn = false
-screenGui.DisplayOrder = 999999
+screenGui.DisplayOrder = 9999
 screenGui.Parent = PlayerGui
 
+-- Tombol EGG disesuaikan warnanya agar gelap pekat (charcoal) persis seperti topbar Roblox
 local floatingIcon = Instance.new("TextButton", screenGui)
 floatingIcon.Name = "FloatingIcon"
-floatingIcon.Size = UDim2.new(0, 45, 0, 45)
-floatingIcon.Position = UDim2.new(0.05, 0, 0.15, 0)
-floatingIcon.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+floatingIcon.Size = UDim2.new(0, 44, 0, 44)
+floatingIcon.Position = UDim2.new(0.33, 3, -0.1, 0)
+floatingIcon.BackgroundTransparency = 0.05
+floatingIcon.BackgroundColor3 = Color3.fromRGB(18, 18, 18)
 floatingIcon.TextColor3 = Color3.fromRGB(255, 255, 255)
 floatingIcon.TextSize = 13
 floatingIcon.Font = Enum.Font.SourceSansBold
 floatingIcon.Text = "EGG"
 floatingIcon.Active = true
 floatingIcon.Draggable = true
-addOutline(floatingIcon, 2)
 Instance.new("UICorner", floatingIcon).CornerRadius = UDim.new(1, 0)
 
+-- MainFrame diatur tepat di tengah layar saat pertama kali dibuka
 local mainFrame = Instance.new("Frame", screenGui)
 mainFrame.Name = "MainFrame"
 mainFrame.Size = UDim2.new(0, 520, 0, 400)
-mainFrame.Position = UDim2.new(0.05, 0, 0.22, 0)
+mainFrame.AnchorPoint = Vector2.new(0.5, 0.5)
+mainFrame.Position = UDim2.new(0.5, 0, 0.5, 0)
 mainFrame.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
 mainFrame.BackgroundTransparency = 0.2
 mainFrame.BorderSizePixel = 0
@@ -462,7 +470,7 @@ autoUpgradeButton.Font = Enum.Font.SourceSansBold
 autoUpgradeButton.Text = autoUpgradeEnabled and "Auto Up: ON" or "Auto Up: OFF"
 Instance.new("UICorner", autoUpgradeButton).CornerRadius = UDim.new(0, 6)
 
--- Container untuk Feed Area (Warna Oranye)
+-- Container untuk Feed Area
 local feedContainer = Instance.new("Frame", leftPanel)
 feedContainer.Size = UDim2.new(1, -4, 0, 28)
 feedContainer.Position = UDim2.new(0, 0, 0, 96)
@@ -692,7 +700,6 @@ local function triggerPrompts(target)
     end
 end
 
--- Fungsi TP Base berdasarkan Plot Pemilik atau Indeks ke-6 dari workspace.Plots
 local function teleportToBase()
     local hrp = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
     if not hrp then return end
@@ -703,7 +710,6 @@ local function teleportToBase()
     if plotsFolder then
         local plotsList = plotsFolder:GetChildren()
         
-        -- Cari berdasarkan Data.Owner
         for _, plot in ipairs(plotsList) do
             local data = plot:FindFirstChild("Data")
             if data then
@@ -715,7 +721,6 @@ local function teleportToBase()
             end
         end
         
-        -- Fallback ke indeks ke-6 jika belum ketemu
         if not targetPlot and #plotsList >= 6 then
             targetPlot = plotsList[6]
         end
@@ -736,7 +741,6 @@ local function teleportToBase()
         end
     end
     
-    -- Fallback terakhir jika plot tidak ditemukan
     local currentPos = hrp.Position
     hrp.CFrame = CFrame.new(currentPos.X, 40312 - 500, currentPos.Z)
 end
@@ -750,9 +754,9 @@ local function processEggCollection(item)
     local hrp = character.HumanoidRootPart
     local humanoid = character:FindFirstChildOfClass("Humanoid")
     local eggName = item.Name
+    local isSpecialEgg = (eggName == "Volcanic Egg")
     
-    -- Aktifkan Noclip selama 2 detik saat teleport ke telur
-    local noclipDuration = 2
+    local noclipDuration = 4
     local startTime = tick()
     local noclipConn
     noclipConn = RunService.Stepped:Connect(function()
@@ -771,7 +775,26 @@ local function processEggCollection(item)
     end)
     table.insert(getgenv().RideAPet_Connections, noclipConn)
 
-    hrp.CFrame = part.CFrame + Vector3.new(0, 10, 0)
+    if isSpecialEgg then
+        hrp.CFrame = CFrame.new(SPECIAL_POS_1 + Vector3.new(0, 5, 0))
+        task.wait(0.2)
+        
+        local dest2 = SPECIAL_POS_2 + Vector3.new(0, 5, 0)
+        local lookDir = (dest2 - hrp.Position)
+        lookDir = Vector3.new(lookDir.X, 0, lookDir.Z)
+        if lookDir.Magnitude > 0 then
+            hrp.CFrame = CFrame.new(hrp.Position, hrp.Position + lookDir)
+        end
+        local finalCF2 = CFrame.new(dest2, dest2 + lookDir)
+        local dist2 = (hrp.Position - dest2).Magnitude
+        local travelTime2 = math.clamp(dist2 / 100, 0.5, 4)
+        
+        local tween2 = TweenService:Create(hrp, TweenInfo.new(travelTime2, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), {CFrame = finalCF2})
+        tween2:Play()
+        task.wait(travelTime2)
+    end
+
+    hrp.CFrame = part.CFrame + Vector3.new(0, 5, 0)
     
     local flying = true
     local flyConn = RunService.RenderStepped:Connect(function()
@@ -793,12 +816,47 @@ local function processEggCollection(item)
     if flyConn then flyConn:Disconnect() end
     if humanoid then humanoid:ChangeState(Enum.HumanoidStateType.GettingUp) end
     
-    -- Logika Tujuan Akhir (Feed Area atau Base Utama)
-    if feedAreaEnabled and feedTargetPosition then
-        hrp.CFrame = CFrame.new(feedTargetPosition + Vector3.new(0, 5, 0))
-        task.wait(0.3)
+    if isSpecialEgg then
+        hrp.CFrame = CFrame.new(SPECIAL_POS_2 + Vector3.new(0, 5, 0))
+        task.wait(0.2)
         
-        -- Eksekusi Remote BasketDrop dengan nama telur yang diangkat
+        local dest1 = SPECIAL_POS_1 + Vector3.new(0, 5, 0)
+        local lookDir1 = (dest1 - hrp.Position)
+        lookDir1 = Vector3.new(lookDir1.X, 0, lookDir1.Z)
+        if lookDir1.Magnitude > 0 then
+            hrp.CFrame = CFrame.new(hrp.Position, hrp.Position + lookDir1)
+        end
+        local finalCF1 = CFrame.new(dest1, dest1 + lookDir1)
+        local dist1 = (hrp.Position - dest1).Magnitude
+        local travelTime1 = math.clamp(dist1 / 100, 0.5, 4)
+        
+        local tween1 = TweenService:Create(hrp, TweenInfo.new(travelTime1, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), {CFrame = finalCF1})
+        tween1:Play()
+        task.wait(travelTime1)
+    end
+    
+    if feedAreaEnabled and feedTargetPosition then
+        local startPos = hrp.Position
+        local destPos = feedTargetPosition + Vector3.new(0, 5, 0)
+        
+        local lookDir = (destPos - startPos)
+        lookDir = Vector3.new(lookDir.X, 0, lookDir.Z)
+        
+        if lookDir.Magnitude > 0 then
+            hrp.CFrame = CFrame.new(hrp.Position, hrp.Position + lookDir)
+        end
+        
+        local distance = (startPos - destPos).Magnitude
+        local travelTime = math.clamp(distance / 100, 0.5, 7)
+        
+        local finalCF = CFrame.new(destPos, destPos + lookDir)
+        
+        local tweenInfo = TweenInfo.new(travelTime, Enum.EasingStyle.Sine, Enum.EasingDirection.Out)
+        local tween = TweenService:Create(hrp, tweenInfo, {CFrame = finalCF})
+        
+        tween:Play()
+        task.wait(travelTime)
+        
         pcall(function()
             local basketEvent = ReplicatedStorage:FindFirstChild("Remotes") 
                 and ReplicatedStorage.Remotes.Game 
@@ -883,7 +941,7 @@ local function updateUIList()
                     if item and item.Parent then
                         local part = getEggPart(item)
                         if part and LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart") then
-                            LocalPlayer.Character.HumanoidRootPart.CFrame = part.CFrame + Vector3.new(0, 10, 0)
+                            LocalPlayer.Character.HumanoidRootPart.CFrame = part.CFrame + Vector3.new(0, 5, 0)
                         end
                     end
                 end)
